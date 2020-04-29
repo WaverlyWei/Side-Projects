@@ -1,0 +1,748 @@
+\documentclass{article}
+
+\usepackage{geometry}
+\geometry{verbose,tmargin=1in,bmargin=1in,lmargin=1in,rmargin=1in}
+\usepackage{fancyhdr}
+\pagestyle{fancy}
+\setlength{\parskip}{\smallskipamount}
+\setlength{\parindent}{0pt}
+\usepackage{amsthm}
+\usepackage{amsmath}
+\usepackage{hyperref}
+
+
+\begin{document}
+
+\title{Lab 2 - Linguistic Survey\\
+Stat 215A, Fall 2017}
+
+
+\author{Linqing(Waverly) Wei}
+
+\maketitle
+
+<<setup, echo = FALSE, message=FALSE, warning=FALSE>>=
+# load in useful packages
+library(tidyverse)
+library(forcats)
+library(lubridate)
+library(stringr)
+library(GGally)
+library(plotly)
+library(dygraphs)
+library(lattice)
+library(ggplot2)
+library(processx)
+library(knitr)
+library(kableExtra)
+library(gridExtra)
+library(shiny)
+library(leaflet)
+library(maps)
+library(ggbiplot)
+library(rgl)
+library(lattice)
+library(factoextra)
+library(d3scatter)
+library(htmltools)
+library(crosstalk)
+library(leaflet)
+library(DT)
+library(ggmap)
+library(viridis)
+library(ggthemes)
+library(factoextra)
+library(vegan)
+library(png)
+
+## Set environment variables 
+Sys.setenv('MAPBOX_TOKEN' = 'pk.eyJ1IjoiY3V0ZXBsb3RzIiwiYSI6ImNqbW83eXpnejExcTMzd3IyYmdjcHhuZmwifQ.P20ibHbn79AX8yuQyrvzDw')
+#Sys.setenv("plotly_username"="linqing_wei")
+#Sys.setenv("plotly_api_key"="GIVKMkqgdnDFjmcwsFyx")
+
+
+@
+
+\section{Redwood}
+When varying the bandwidth, we are basically changing the smoothness of the kernel density estimators. When bandwidth is 1, there are four modes shown in the plot, meaning that these four temperature bins capture the most amount of data points. When adding the bandwidth, we are smoothing over the bins, such that the plot shows three modes when bandwidth is 2 and unimode with bandwidth 5 and 10 at temperature 15$^{\circ}$C. \\
+
+When fitting a loess cruve to the data, the higher the degree of polynomial, the better the curve fits the data points, meaning a smaller bias. However, overfitting leads to very high variance. When using very small bandwidth like 0.2, the curve fits data extremely well but leads to a high variance. Increasing bandwidth captures the more variation within the data but in turn gives a large bias. Therefore, it is quite important to find the balancing point between bias and variance. 
+
+
+<<load-data, echo = FALSE, message = FALSE, warning = FALSE, cache = TRUE>>=
+
+# load in the loadData() functions
+source("R/load.R")
+# load in the cleanData() functions
+source("R/clean.R")
+
+# load the dates data
+dates_orig <- loadDatesData(path = "data/")
+# clean the dates data
+dates <- cleanDatesData(dates_orig)
+
+# load the redwood sensor data
+redwood_all_orig <- loadRedwoodData(path = "data/", source = "all")
+redwood_net_orig <- loadRedwoodData(path = "data/", source = "net")
+redwood_log_orig <- loadRedwoodData(path = "data/", source = "log")
+# clean the redwood sensor data
+redwood_all <- cleanRedwoodData(redwood_all_orig)
+redwood_net <- cleanRedwoodData(redwood_net_orig)
+redwood_log <- cleanRedwoodData(redwood_log_orig)
+
+# load in the mote location data
+mote_location <- loadMoteLocationData(path = "data/")
+@
+
+
+
+<<kernel, echo = FALSE, message = FALSE, warning = FALSE, cache = TRUE,fig.align='center',out.width="200px", out.height="200px">>=
+
+# kernel plot with bandwidth 1
+d1 <- ggplot(redwood_all, aes(x=humid_temp)) + 
+  geom_density(color="darkblue", fill="lightblue",adjust = 1)+ theme_bw() + theme(panel.border = element_blank(), panel.grid.major = element_blank(),
+panel.grid.minor = element_blank(), axis.line = element_line(colour = "black")) + ggtitle("Kernel Density Estimation of Redwood Temperature h=1")+theme(plot.title = element_text(size = 9, face = "bold")) 
+
+# kernel plot with bandwidth 2
+d2<- ggplot(redwood_all, aes(x=humid_temp)) + 
+  geom_density(color="darkblue", fill="lightblue",adjust = 2)+ theme_bw() + theme(panel.border = element_blank(), panel.grid.major = element_blank(),
+panel.grid.minor = element_blank(), axis.line = element_line(colour = "black"))+ ggtitle("Kernel Density Estimation of Redwood Temperature h=2")+theme(plot.title = element_text(size = 9, face = "bold")) 
+
+## kernel plot with bandwidth 5
+d3<- ggplot(redwood_all, aes(x=humid_temp)) + 
+  geom_density(color="darkblue", fill="lightblue",adjust = 5)+ theme_bw() + theme(panel.border = element_blank(), panel.grid.major = element_blank(),
+panel.grid.minor = element_blank(), axis.line = element_line(colour = "black"))+ ggtitle("Kernel Density Estimation of Redwood Temperature h=5")+theme(plot.title = element_text(size = 9, face = "bold")) 
+
+## kernel plot with bandwidth 10
+d4<- ggplot(redwood_all, aes(x=humid_temp)) + 
+  geom_density(color="darkblue", fill="lightblue",adjust = 10)+ theme_bw() + theme(panel.border = element_blank(), panel.grid.major = element_blank(),
+panel.grid.minor = element_blank(), axis.line = element_line(colour = "black"))+ ggtitle("Kernel Density Estimation of Redwood Temperature h=10")+theme(plot.title = element_text(size = 9, face = "bold")) 
+
+
+grid.arrange(d1,d2,d3,d4,ncol=2)
+@
+
+
+<<THplot, echo = FALSE, message = FALSE, warning = FALSE, cache = TRUE,fig.align='center',out.width="300px", out.height="300px">>=
+
+# pick one time of a day 
+t.df <- redwood_all %>% filter(epoch %% 288 ==3)
+
+# polynomial with degree 1
+p1 <- t.df %>% ggplot(aes(humidity,humid_temp)) + geom_point() + geom_smooth(method = "loess",formula = y ~ poly(x, 1))+theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+panel.background = element_blank(), axis.line = element_line(colour = "black"))+ ggtitle("Humidity vs Temperature with degree 1 polynomial") +theme(plot.title = element_text(size = 9, face = "bold")) 
+
+
+# polynomial with degree 2
+p2 <- t.df %>% ggplot(aes(humidity,humid_temp)) + geom_point() + geom_smooth(method = "loess",formula = y ~ poly(x, 2))+theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+panel.background = element_blank(), axis.line = element_line(colour = "black"))+ ggtitle("Humidity vs Temperature with degree 2 polynomial") +theme(plot.title = element_text(size = 9, face = "bold")) 
+
+# polynomial with degree 3
+p3 <- t.df %>% ggplot(aes(humidity,humid_temp)) + geom_point() + geom_smooth(method = "loess",formula = y ~ poly(x, 3))+theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+panel.background = element_blank(), axis.line = element_line(colour = "black"))+ ggtitle("Humidity vs Temperature with degree 3 polynomial") +theme(plot.title = element_text(size = 9, face = "bold")) 
+
+# polynomial with degree 4
+p4 <- t.df %>% ggplot(aes(humidity,humid_temp)) + geom_point() + geom_smooth(method = "loess",formula = y ~ poly(x, 4))+theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+panel.background = element_blank(), axis.line = element_line(colour = "black"))+ ggtitle("Humidity vs Temperature with degree 4 polynomial") +theme(plot.title = element_text(size = 9, face = "bold")) 
+
+grid.arrange(p1,p2,p3,p4)
+
+@
+
+
+<<THkernel, echo = FALSE, message = FALSE, warning = FALSE, cache = TRUE,fig.align='center',out.width="300px", out.height="300px">>=
+
+# bandwidth 0.2 and polynomial degree 2 
+s1 <- t.df %>% ggplot(aes(humidity,humid_temp)) + geom_point() + geom_smooth(method = "loess",formula = y ~ poly(x, 2),span=0.2)+theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+panel.background = element_blank(), axis.line = element_line(colour = "black"))+ ggtitle("Humidity vs Temperature with 0.2 bandwidth")+theme(plot.title = element_text(size = 9, face = "bold"))
+
+# bandwidth 0.5 and polynomial degree 2 
+s2 <- t.df %>% ggplot(aes(humidity,humid_temp)) + geom_point() + geom_smooth(method = "loess",formula = y ~ poly(x, 2),span=0.5)+theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+panel.background = element_blank(), axis.line = element_line(colour = "black"))+ ggtitle("Humidity vs Temperature with degree 0.5 bandwidth")+theme(plot.title = element_text(size = 9, face = "bold")) 
+
+# bandwidth 0.8 and polynomial degree 2 
+s3 <- t.df %>% ggplot(aes(humidity,humid_temp)) + geom_point() + geom_smooth(method = "loess",formula = y ~ poly(x, 2),span=0.8)+theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+panel.background = element_blank(), axis.line = element_line(colour = "black"))+ ggtitle("Humidity vs Temperature with 0.8 bandwidth")+theme(plot.title = element_text(size = 9, face = "bold"))
+
+# bandwidth 1 and polynomial degree 2 
+s4 <- t.df %>% ggplot(aes(humidity,humid_temp)) + geom_point() + geom_smooth(method = "loess",formula = y ~ poly(x, 4),span=1)+theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+panel.background = element_blank(), axis.line = element_line(colour = "black"))+ ggtitle("Humidity vs Temperature with 1 bandwidth") +theme(plot.title = element_text(size = 9, face = "bold"))
+
+grid.arrange(s1,s2,s3,s4)
+
+@
+
+\section{Introduction}
+Modeling linguistics is like modeling human "cultural genes." Linguistic patterns are both preserved and modified over time and over human migrations. Linguistic variations are always prevalent, obvious, yet hard to quantify. Taking into individual features would lead to a hard characterization, but luckily the presence of Dialectometry handles this quantification problem quite well by realibly aggregating over geographical patterns. This study investigates people's dialectology patterns in the United States and maps onto geographical areas to detect the underlying pattern of what has been shared and what leads to the differentiations? The questions are designed to capture all aspects of people's social and cultural habits in order to refelct the linguistic pattern underneath.\\
+\section{The Data}
+There are three datasets: question, which contains the survey questions and answers; lingData, which includes subject ID, states, zipcode, city, each person's response to the questions and geographical coordinates. lingLocation expands all the answer choices and count the number of people fall under each answer choice within a small block of geographical location. 
+
+<<data, echo = FALSE, message = FALSE, warning = FALSE, cache = TRUE>>=
+load("data/question_data.Rdata")
+
+#each person's answer choice to each of 72 questions
+ling_dat <- read.table("data/lingData.txt",header = TRUE)
+
+# V4-V471 contains total of 468 answer choices over 72 questions 
+ling_loc <- read.table("data/lingLocation.txt",header = TRUE)
+@
+
+
+\subsection{Data quality and cleaning}
+This dataset has two major issues: large amount of missing values in longitude and latitude columns and incorrect geocode in STATE column. I removed the rows containing missing values in latitude and longitude. For states, I removed the ones with apprent wrong code like "!L". Then I noticed that some observations have two-letter state code but not in one of the 50 states, possibly some territories I've never heard of. I inspected the number of people falling under those codes, which is quite small. Therefore, I made a decision to remove those unknown code since those wrongly-coded observations won't impact the overall underlying trend of the data. 
+
+<<clean-data, echo = FALSE, message = FALSE, warning = FALSE, cache = TRUE>>=
+
+## ALso, STATES are not 50!
+code <- c("AL","AK", "AZ", "AR","CA","CO","CT","DE",
+"FL","GA","HI","ID","IL","IN","IA","KS","KY","LA","ME","MD",
+ "MA","MI","MN","MS","MO","MT","NE","NV","NH","NJ","NM","NY",
+ "NC","ND","OH","OK","OR","PA","RI","SC","SD","TN","TX","UT","VT",
+ "VA","WA","WV","WI","WY")
+
+ling_dat$STATE <- as.character(ling_dat$STATE)
+
+#invalid_code <- c("XX","N.","!L","00","M","94","C)","<NA>")
+ling_dat <- ling_dat %>% filter(STATE %in% code &!is.na(STATE))
+
+## clean missing lat and long
+ling_dat <- ling_dat %>% filter(!is.na(lat) & !is.na(long))
+ling_loc <- ling_loc %>% filter(!is.na(Latitude) & !is.na(Longitude))
+
+@
+
+\subsection{Exploratory Data Analysis}
+I decided to choose question 104 and question 95. Q95 is: What is THE city? Q104 is: What do you call a public railway system. I chose those two questions because I suspected that they will both display some localized trends. 
+<<questions, echo = FALSE, message = FALSE, warning = FALSE, cache = TRUE>>=
+
+# Q104 with full answers 
+first_q <- ling_dat %>% 
+  filter(Q104!=0)
+
+# extract the answers to question 50
+answers_q104 <- all.ans[['104']]
+
+# join datasets
+answers_q104$Q104 <- rownames(answers_q104)
+first_q$Q104 <- as.character(first_q$Q104)
+first_q <- inner_join(first_q, answers_q104, by = "Q104")
+
+
+## Second Question 
+second_q <- ling_dat %>% 
+  filter(Q095!=0)
+# extract the answers to question 50
+answers_q095 <- all.ans[['95']]
+
+#join datasets
+answers_q095$Q095 <- rownames(answers_q095)
+second_q$Q095 <- as.character(second_q$Q095)
+second_q <- inner_join(second_q, answers_q095, by = "Q095")
+
+
+@
+
+\textbf{NOTE: \\
+These maps are interactive plots. Please find the .Rmd and .html files to reproduce the maps}
+
+<<echo = FALSE, message = FALSE, warning = FALSE, cache = TRUE,fig.align='center',out.width="300px", out.height="300px">>=
+img1 <-  rasterGrob(as.raster(readPNG("extra/mapQ104.png")), interpolate = FALSE)
+img2 <-  rasterGrob(as.raster(readPNG("extra/mapQ095.png")), interpolate = FALSE)
+grid.arrange(img1, img2, nrow= 2)
+@
+
+
+
+<<intensity, echo = FALSE, message = FALSE, warning = FALSE, cache = TRUE,fig.align='center',out.width="400px", out.height="300px">>=
+
+## Find the answer choice starting 104 
+
+# sum(apply(ling_dat[,5:58],2,function(x) max(x)))
+
+# 377 answers before Q104
+
+
+register_google('AIzaSyDeEnpMwfmekK94zWsclU8VkvGCEpYg3UI')
+
+theme_set(theme_bw(16))
+map <- qmap("united states", zoom = 3, color = "bw", legend = "topleft")
+
+# filter answer choices 
+A.1 <- ling_loc %>% filter(Longitude,Latitude,V378)
+A.2 <- ling_loc %>% filter(Longitude,Latitude,V379)
+A.3 <- ling_loc %>% filter(Longitude,Latitude,V380)
+A.4 <- ling_loc %>% filter(Longitude,Latitude,V381)
+A.5 <- ling_loc %>% filter(Longitude,Latitude,V382)
+A.6 <- ling_loc %>% filter(Longitude,Latitude,V383)
+
+
+# plot density maps of all answer choices 
+gg.1 <- map + stat_density2d(data=A.1, aes(x=Longitude, y=Latitude, fill=..level.., alpha=..level..),
+                          geom="polygon", size=0.01, bins=5)+ scale_fill_viridis()+
+  scale_alpha(range=c(0.2, 0.4), guide=FALSE)+ coord_map()+
+  labs(x=NULL, y=NULL, title="The Subway \n")+ theme_map(base_family="Helvetica") + 
+  theme(plot.title=element_text(face="bold", hjust=1)) + theme(panel.margin.x=unit(1, "cm"))+ theme(panel.margin.y=unit(1, "cm")) + theme(legend.position="right")+ theme(strip.background=element_rect(fill="white", color="white")) + theme(strip.text=element_text(face="bold", hjust=0))
+
+gg.2 <- map + stat_density2d(data=A.2, aes(x=Longitude, y=Latitude, fill=..level.., alpha=..level..),
+                          geom="polygon", size=0.01, bins=5)+ scale_fill_viridis()+
+  scale_alpha(range=c(0.2, 0.4), guide=FALSE)+ coord_map()+
+  labs(x=NULL, y=NULL, title=" the L, or the El\n")+ theme_map(base_family="Helvetica") + 
+  theme(plot.title=element_text(face="bold", hjust=1)) + theme(panel.margin.x=unit(1, "cm"))+ theme(panel.margin.y=unit(1, "cm")) + theme(legend.position="right")+ theme(strip.background=element_rect(fill="white", color="white")) + theme(strip.text=element_text(face="bold", hjust=0))
+
+gg.3 <- map + stat_density2d(data=A.3, aes(x=Longitude, y=Latitude, fill=..level.., alpha=..level..),
+                          geom="polygon", size=0.01, bins=5)+ scale_fill_viridis()+
+  scale_alpha(range=c(0.2, 0.4), guide=FALSE)+ coord_map()+
+  labs(x=NULL, y=NULL, title="the T   \n")+ theme_map(base_family="Helvetica") + 
+  theme(plot.title=element_text(face="bold", hjust=1)) + theme(panel.margin.x=unit(1, "cm"))+ theme(panel.margin.y=unit(1, "cm")) + theme(legend.position="right")+ theme(strip.background=element_rect(fill="white", color="white")) + theme(strip.text=element_text(face="bold", hjust=0))
+
+
+gg.4 <- map + stat_density2d(data=A.4, aes(x=Longitude, y=Latitude, fill=..level.., alpha=..level..),
+                          geom="polygon", size=0.01, bins=5)+ scale_fill_viridis()+
+  scale_alpha(range=c(0.2, 0.4), guide=FALSE)+ coord_map()+
+  labs(x=NULL, y=NULL, title=" the metro \n")+ theme_map(base_family="Helvetica") + 
+  theme(plot.title=element_text(face="bold", hjust=1)) + theme(panel.margin.x=unit(1, "cm"))+ theme(panel.margin.y=unit(1, "cm")) + theme(legend.position="right")+ theme(strip.background=element_rect(fill="white", color="white")) + theme(strip.text=element_text(face="bold", hjust=0))
+
+
+
+gg.5 <- map + stat_density2d(data=A.5, aes(x=Longitude, y=Latitude, fill=..level.., alpha=..level..),
+                          geom="polygon", size=0.01, bins=5)+ scale_fill_viridis()+
+  scale_alpha(range=c(0.2, 0.4), guide=FALSE)+ coord_map()+
+  labs(x=NULL, y=NULL, title="BART\n")+ theme_map(base_family="Helvetica") + 
+  theme(plot.title=element_text(face="bold", hjust=1)) + theme(panel.margin.x=unit(1, "cm"))+ theme(panel.margin.y=unit(1, "cm")) + theme(legend.position="right")+ theme(strip.background=element_rect(fill="white", color="white")) + theme(strip.text=element_text(face="bold", hjust=0))
+
+
+gg.6 <- map + stat_density2d(data=A.6, aes(x=Longitude, y=Latitude, fill=..level.., alpha=..level..),
+                          geom="polygon", size=0.01, bins=5)+ scale_fill_viridis()+
+  scale_alpha(range=c(0.2, 0.4), guide=FALSE)+ coord_map()+
+  labs(x=NULL, y=NULL, title="other\n")+ theme_map(base_family="Helvetica") + 
+  theme(plot.title=element_text(face="bold", hjust=1)) + theme(panel.margin.x=unit(1, "cm"))+ theme(panel.margin.y=unit(1, "cm")) + theme(legend.position="right")+ theme(strip.background=element_rect(fill="white", color="white")) + theme(strip.text=element_text(face="bold", hjust=0))
+
+
+grid.arrange(gg.1,gg.2,gg.3,gg.4,gg.5,gg.6)
+
+@
+
+
+
+<<intensity2, echo = FALSE, message = FALSE, warning = FALSE, cache = TRUE,fig.align='center',out.width="400px", out.height="300px">>=
+
+## Find the answer choice starting 104:
+
+#sum(apply(ling_dat[,5:49],2,function(x) max(x)))
+
+# 319 answers before Q104
+register_google('AIzaSyDeEnpMwfmekK94zWsclU8VkvGCEpYg3UI')
+
+theme_set(theme_bw(16))
+map <- qmap("united states", zoom = 3, color = "bw", legend = "topleft")
+
+# filter answer choices 
+B.1 <- ling_loc %>% filter(Longitude,Latitude,V320)
+B.2 <- ling_loc %>% filter(Longitude,Latitude,V321)
+B.3 <- ling_loc %>% filter(Longitude,Latitude,V322)
+B.4 <- ling_loc %>% filter(Longitude,Latitude,V323)
+B.5 <- ling_loc %>% filter(Longitude,Latitude,V324)
+B.6 <- ling_loc %>% filter(Longitude,Latitude,V325)
+
+
+# plot density maps of all answer choices 
+pp.1 <- map + stat_density2d(data=B.1, aes(x=Longitude, y=Latitude, fill=..level.., alpha=..level..),
+                          geom="polygon", size=0.01, bins=5)+ scale_fill_viridis()+
+  scale_alpha(range=c(0.2, 0.4), guide=FALSE)+ coord_map()+
+  labs(x=NULL, y=NULL, title="New York City \n")+ theme_map(base_family="Helvetica") + 
+  theme(plot.title=element_text(face="bold", hjust=1)) + theme(panel.margin.x=unit(1, "cm"))+ theme(panel.margin.y=unit(1, "cm")) + theme(legend.position="right")+ theme(strip.background=element_rect(fill="white", color="white")) + theme(strip.text=element_text(face="bold", hjust=0))
+
+pp.2 <- map + stat_density2d(data=B.2, aes(x=Longitude, y=Latitude, fill=..level.., alpha=..level..),
+                          geom="polygon", size=0.01, bins=5)+ scale_fill_viridis()+
+  scale_alpha(range=c(0.2, 0.4), guide=FALSE)+ coord_map()+
+  labs(x=NULL, y=NULL, title=" Boston\n")+ theme_map(base_family="Helvetica") + 
+  theme(plot.title=element_text(face="bold", hjust=1)) + theme(panel.margin.x=unit(1, "cm"))+ theme(panel.margin.y=unit(1, "cm")) + theme(legend.position="right")+ theme(strip.background=element_rect(fill="white", color="white")) + theme(strip.text=element_text(face="bold", hjust=0))
+
+pp.3 <- map + stat_density2d(data=B.3, aes(x=Longitude, y=Latitude, fill=..level.., alpha=..level..),
+                          geom="polygon", size=0.01, bins=5)+ scale_fill_viridis()+
+  scale_alpha(range=c(0.2, 0.4), guide=FALSE)+ coord_map()+
+  labs(x=NULL, y=NULL, title="DC\n")+ theme_map(base_family="Helvetica") + 
+  theme(plot.title=element_text(face="bold", hjust=1)) + theme(panel.margin.x=unit(1, "cm"))+ theme(panel.margin.y=unit(1, "cm")) + theme(legend.position="right")+ theme(strip.background=element_rect(fill="white", color="white")) + theme(strip.text=element_text(face="bold", hjust=0))
+
+
+pp.4 <- map + stat_density2d(data=B.4, aes(x=Longitude, y=Latitude, fill=..level.., alpha=..level..),
+                          geom="polygon", size=0.01, bins=5)+ scale_fill_viridis()+
+  scale_alpha(range=c(0.2, 0.4), guide=FALSE)+ coord_map()+
+  labs(x=NULL, y=NULL, title=" LA \n")+ theme_map(base_family="Helvetica") + 
+  theme(plot.title=element_text(face="bold", hjust=1)) + theme(panel.margin.x=unit(1, "cm"))+ theme(panel.margin.y=unit(1, "cm")) + theme(legend.position="right")+ theme(strip.background=element_rect(fill="white", color="white")) + theme(strip.text=element_text(face="bold", hjust=0))
+
+
+
+pp.5 <- map + stat_density2d(data=B.5, aes(x=Longitude, y=Latitude, fill=..level.., alpha=..level..),
+                          geom="polygon", size=0.01, bins=5)+ scale_fill_viridis()+
+  scale_alpha(range=c(0.2, 0.4), guide=FALSE)+ coord_map()+
+  labs(x=NULL, y=NULL, title="CHICAGO \n")+ theme_map(base_family="Helvetica") + 
+  theme(plot.title=element_text(face="bold", hjust=1)) + theme(panel.margin.x=unit(1, "cm"))+ theme(panel.margin.y=unit(1, "cm")) + theme(legend.position="right")+ theme(strip.background=element_rect(fill="white", color="white")) + theme(strip.text=element_text(face="bold", hjust=0))
+
+
+pp.6 <- map + stat_density2d(data=B.6, aes(x=Longitude, y=Latitude, fill=..level.., alpha=..level..),
+                          geom="polygon", size=0.01, bins=5)+ scale_fill_viridis()+
+  scale_alpha(range=c(0.2, 0.4), guide=FALSE)+ coord_map()+
+  labs(x=NULL, y=NULL, title="other\n")+ theme_map(base_family="Helvetica") + 
+  theme(plot.title=element_text(face="bold", hjust=1)) + theme(panel.margin.x=unit(1, "cm"))+ theme(panel.margin.y=unit(1, "cm")) + theme(legend.position="right")+ theme(strip.background=element_rect(fill="white", color="white")) + theme(strip.text=element_text(face="bold", hjust=0))
+
+
+grid.arrange(pp.1,pp.2,pp.3,pp.4,pp.5,pp.6)
+
+@
+
+From the plots, we can tell eople do have a shared answer for "the public railway system" which is "The subway." However, small clusters do form by geographical areas. For example, people who answered "The Metro" are more centered around northeast. We only see tiny amount of people choose "BART" on the west coast. It doesn't mean that BART is not a prevalent term in the bay area, but the data is not weighted and less people on the west coast participated into the research compared to the east. This reflects an interesting aspect of dialectometry: although many geographical areas do have a locally shared linguistic register, for commonly used social constructions, we do have a shared term to identify the object.\\
+
+Question 95 "What is THE city?" is more interesting. "City" is not like a public railway system, it is more of a descriptive term, very self-defined. In this case, we do see a larger variation among the answers. People refer to the largest and closest city as "The City." Initially we might suspect that we would to see very distinct geographical clusters, but in fact, there is still a commonly shared term: "New York City." Many people on the west coast did choose NYC as the city. Rather than defining this as a linguistic habit, I view this as more of a cultural habit. New York City is culturally defined and publicized with a metropolitan image, and that made people think out of the adjacent city and pick NYC as the city. These two questions can be used to PARTIALLY predict one another since they both define similar geographical clusters. For example, the area with the high intensity of people choosing "Metro" also has high intensity of choosing "NYC." However, since the west coast has a smaller amount of participants, we fail to see distinct correlation between the two questions' answer choice on the west side. \\
+
+
+<<more questions, echo = FALSE, message = FALSE, warning = FALSE, cache = TRUE,fig.align='center',out.width="300px", out.height="300px">>=
+
+state_df <- map_data("state")
+
+blank_theme <- theme_bw() +
+  theme(plot.background = element_blank(),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.border = element_blank()) 
+
+
+# Rainfall  Q80
+third_q <- ling_dat %>% 
+  filter(Q080 %in% c(1, 2, 9), long > -125)
+# extract the answers to question 50
+answers_q80 <- all.ans[['80']]
+
+# Make the column to join on.  They must be the same type.
+answers_q80$Q080 <- rownames(answers_q80)
+third_q$Q080 <- as.character(third_q$Q080)
+third_q <- inner_join(third_q, answers_q80, by = "Q080")
+
+
+# SCATTER PLOT 
+map3<- ggplot(third_q) +
+  geom_point(aes(x = long, y = lat, color = ans), 
+             size = 3, alpha = 0.5) +
+  geom_polygon(aes(x = long, y = lat, group = group),
+               data = state_df, colour = "black", fill = NA) +
+  blank_theme + ggtitle('What do you call it when rain falls while sun is still shining')
+
+
+## milkshake Q63
+
+fourth_q <- ling_dat %>% 
+  filter(Q063 %in% c(1, 2, 9), long > -125)
+# extract the answers to question 50
+answers_q63 <- all.ans[['63']]
+
+# Make the column to join on.  They must be the same type.
+answers_q63$Q063 <- rownames(answers_q63)
+fourth_q$Q063 <- as.character(fourth_q$Q063)
+fourth_q <- inner_join(fourth_q, answers_q63, by = "Q063")
+
+# SCATTER PLOT 
+map4<- ggplot(fourth_q) +
+  geom_point(aes(x = long, y = lat, color = ans), 
+             size = 3, alpha = 0.5) +
+  geom_polygon(aes(x = long, y = lat, group = group),
+               data = state_df, colour = "black", fill = NA) +
+  blank_theme + ggtitle('What do you call the drink made with milk and ice cream')
+
+
+grid.arrange(map3,map4)
+@
+
+Many other questions do not show any geographical distinctions. It seems like people show consistency of dialect bahaviors when it comes to food and weather. Question 80 "What do you call it when rain falls and sun is shining" shows a very prevalent trend. People call it sunshower across all the states. The answer answer choice "The devil is beating his wife" appears in the southern part with a small cluster. It could be a very specific and localized term  but not prevalent. Question 63 shows similar result. Almost all participants call "the drink made with milk and ice cream" as milkshake, despite a few people on the east coast call it "frappe." 
+\section{Dimension reduction methods}
+Before proceeding with PCA, we conducted binarization because in the original dataset, multiple answer choices are grouped together under each question. Binarization helps with expanding the variation in the original dataset. Also, a scaled and centered binary matrix would make PCA more computationally efficient. 
+<<encode-data, echo = FALSE, message = FALSE, warning = FALSE, cache = TRUE>>=
+
+# code into binary format
+  encode_mat <- NULL
+  for (i in 5: 71){
+    mat <- model.matrix(~factor(ling_dat[,i]))[,-1]
+    encode_mat <- cbind(encode_mat,mat)
+  }
+  
+  colnames(encode_mat) <- sprintf("V%d", 1:468)
+  @
+    
+
+    <<pca-data, echo = FALSE, message = FALSE, warning = FALSE, cache = TRUE,fig.align='center',out.width="200px", out.height="200px">>=
+  
+    # calculate PCs
+    mat.pca <- prcomp(encode_mat, center = TRUE,scale. = TRUE)
+  
+  #compute variance
+  pr_var <- mat.pca$sdev^2
+  
+  prop_varex <- pr_var/sum(pr_var)
+
+  # scree plot 
+par(mfrow=c(1,2))
+  v1 <- plot(prop_varex, xlab = "Principal Component",
+             ylab = "Proportion of Variance Explained",
+             type = "b",main = "PCA Scree Plot")
+  
+  # cumulative scree plot
+  v2 <- plot(cumsum(prop_varex), xlab = "Principal Component",
+             ylab = "Cumulative Proportion of Variance Explained",
+             type = "b",main = "PCA Cumulative Variance Explained")
+  
+  
+  
+# only plot 3 components 
+  comp <- data.frame(mat.pca$x[,1:3])
+  
+# plot PCs 
+  pc <- plot_ly(comp, x = ~PC1, y = ~PC2, z = ~PC3, alpha = 0.5,colors = c('#BF382A')) %>%
+    add_markers() %>%
+    layout(scene = list(xaxis = list(title = 'PC1'),
+                        yaxis = list(title = 'PC2'),
+                        zaxis = list(title = 'PC3')))
+  
+  
+#chart_link = api_create(pc, filename="scatter3d-basic")
+@
+
+<<echo = FALSE, message = FALSE, warning = FALSE, cache = TRUE,fig.align='center',out.width="200px", out.height="200px">>=
+  
+# load and display static image 
+include_graphics('extra/pca.png')
+@
+\textbf{NOTE: \\
+This is an interactive plot. Please click the link below. \\}
+
+
+\par{
+    \url{https://plot.ly/~linqing_wei/19.embed}\\
+    
+}
+After calculating the principle components of the binarized dataset, PC1 only captures $1.5\%$ of the total variance. This is very reasonable since after binarizing the dataset, each variable represents only one answer choice of one single question. The amount of variation a single principal component is able to capture would be very limited. The threshold appears at 400, meaning that roughly 400 principal componenets would be able to capture more than $98\%$ of the total variance. After projecting the data onto PC1 and PC2, it's hard to evaluate whether projecting onto this plane would be ideal. Therefore, I created a 3D plot to explore different ways of projecting. It seems that projecting onto PC1 PC2 is actually quite ideal. The data is separated into one huge cluster and one sparse, smaller cluster. This makes sense considering how the data was collected. Many participants centered around east coast. Less people took the surveys on west coast. If projecting onto the plane made by PC1 and PC3, we would only be able to see one large chunk,which is not very meaningful. Roughly, the data should be culstered into two geographic categories. In the next section, we will dive more into the data for a better view of the principal components. \\
+
+
+<<cluster, echo = FALSE, message = FALSE, warning = FALSE, cache = TRUE,fig.align='center',out.width="300px", out.height="200px">>=
+
+## USE full dataset 
+full.pca <- prcomp(ling_dat[,5:71],
+                 center = TRUE,
+                 scale. = TRUE) 
+
+
+
+#LOOK AT each qurstion's contribution to PC
+f0 <- fviz_pca_var(full.pca,
+             col.var = "contrib", # Color by contributions to the PC
+             gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
+             repel = TRUE     # Avoid text overlapping
+             )+ theme_bw() + theme(panel.border = element_blank(), panel.grid.major = element_blank(),
+panel.grid.minor = element_blank(), axis.line = element_line(colour = "black")) + ggtitle("Contribution of Each Question to PCs")+
+  theme(plot.title = element_text(hjust = 0.5,face="bold"))
+
+f0
+
+## LOOK AT individuals 
+## Subset of data
+## WE DO SEE Interesting Clustering  ON subset !!!
+set.seed(1520591)
+sub_ling_dat <- ling_dat[sample(nrow(ling_dat),200),]
+sub.pca <- prcomp(sub_ling_dat[,5:71],center = TRUE)
+
+states <- sub_ling_dat$STATE
+
+f1<- fviz_pca_ind(sub.pca,
+             col.ind = states, # color by groups
+             addEllipses = TRUE, # Concentration ellipses
+             ellipse.type = "confidence",
+             repel = TRUE
+             )+ theme_bw() + theme(panel.border = element_blank(), panel.grid.major = element_blank(),
+panel.grid.minor = element_blank(), axis.line = element_line(colour = "black"))+ ggtitle("Project Individuals onto PC1 and PC2 plane")+
+  theme(plot.title = element_text(hjust = 0.5,face="bold"))
+
+f1
+
+
+## NOW, DO A BIPLOT
+## NICE results, Q59 AND Q82 
+f2<- fviz_pca_biplot(sub.pca, repel = TRUE,
+                col.var = "#2E9FDF", # Variables color
+                col.ind = "#696969"  # Individuals color
+                )+ theme_bw() + theme(panel.border = element_blank(), panel.grid.major = element_blank(),
+panel.grid.minor = element_blank(), axis.line = element_line(colour = "black"))+ ggtitle("Biplot of Questions and Observations onto PC plane")+
+  theme(plot.title = element_text(hjust = 0.5,face="bold"))
+
+f2
+
+@
+
+<<optkmean, echo = FALSE, message = FALSE, warning = FALSE, cache = TRUE,fig.align='center',out.width="200px", out.height="200px">>=
+
+# choose the optimal number of clusters
+fit <- cascadeKM(scale(sub_ling_dat[,5:71], center = TRUE,  scale = TRUE), 1, 10, iter = 1000)
+plot(fit, sortg = TRUE, grpmts.plot = TRUE)
+calinski.best <- as.numeric(which.max(fit$results[2,]))
+@
+ 
+
+By mapping the full dataset onto PC1 and PC2, we found that individuals are clustered into three geographic groups. The result is seen most clearly only when we subset the data rather than plotting all the observations. One giant culster side by side with a mid-size cluster, and another tiny cluster in the corner.Q54,Q55 and Q93 contribute the most to the first two principal components, meaning that those questions are the major varaibles potentially capturing large amount of variations. Q54 and Q55 asked about whether it's appropriate to plug in "anymore" into the sentence..Q93 aksed about whether people use "on line" or "in line." These questions all capture people's grammatical pattern.\\
+
+Another interesting finding is that Q59 and Q82 are the two major questions which separate the geographical groups.Q59 asks about "What do you call the game wherein the participants see who can throw a knife closest to the other person (or alternately, get a jackknife to stick into the ground or a piece of wood)?" It contains 21 answer choices, all colloquial. It makes sense that this question is able to distinguish geographical areas. Same thing as Q82, Q82 asks about"What do you call the gooey or dry matter that collects in the corners of your eyes, especially while you are sleeping?" It also has 21 choices with very localized expressions.One conclusion we can make from this finding is that: the more colloquial question, the more likely it would be able to separate the geographical groups.\\
+
+
+
+
+
+<<kmean, echo = FALSE, message = FALSE, warning = FALSE, cache = TRUE,fig.align='center',out.width="300px", out.height="300px">>=
+
+
+# play with different kmeans 
+k2 <- kmeans(sub_ling_dat[,5:71], centers = 2, nstart = 25)
+k3 <- kmeans(sub_ling_dat[,5:71], centers = 3, nstart = 25)
+k4 <- kmeans(sub_ling_dat[,5:71], centers = 4, nstart = 25)
+
+# plots to compare
+p2 <- fviz_cluster(k2, geom = "point",  data = sub_ling_dat[,5:71]) + ggtitle("k = 2")+ theme_bw() + theme(panel.border = element_blank(), panel.grid.major = element_blank(),
+panel.grid.minor = element_blank(), axis.line = element_line(colour = "black"))+ ggtitle("Dialectometry Data Clustering k=2")+
+  theme(plot.title = element_text(hjust = 0.5,face="bold",size = 7))
+
+
+p3 <- fviz_cluster(k3, geom = "point",  data = sub_ling_dat[,5:71]) + ggtitle("k = 3")+ theme_bw() + theme(panel.border = element_blank(), panel.grid.major = element_blank(),
+panel.grid.minor = element_blank(), axis.line = element_line(colour = "black"))+ ggtitle("Dialectometry Data Clustering k=3")+
+  theme(plot.title = element_text(hjust = 0.5,face="bold",size = 7))
+
+p4 <- fviz_cluster(k4, geom = "point",  data = sub_ling_dat[,5:71]) + ggtitle("k = 4")+ theme_bw() + theme(panel.border = element_blank(), panel.grid.major = element_blank(),
+panel.grid.minor = element_blank(), axis.line = element_line(colour = "black"))+ ggtitle("Dialectometry Data Clustering k=4")+
+  theme(plot.title = element_text(hjust = 0.5,face="bold",size = 7))
+
+grid.arrange(p2,p3,p4,ncol=3)
+
+@
+
+The clinski criterion chooses k =2 as the optimal number of clusters. From the previous findings, we suspect that there should be three culsters. We could therefore varify the results by using cluster number of 2,3,and 4. Intuitively, k =3 would be a better number of clusters,roughly middle, east, and west three geographical areas. However, based on the clustering results shown in the plots, k =2 well captured the major variations. \\
+
+
+Now, we run Spectral Clustering on the PCA results, the reduced data, to see if there's any interesting clustering results we failed to capture in the previous analysis. 
+
+<<spectral, echo = FALSE, message = FALSE, warning = FALSE, cache = TRUE,fig.align='center',out.width="300px", out.height="300px">>=
+
+# define a function for plotting
+plotLabeledData <- function(x, y, labels=NULL) {
+  # Plot labeled data along two axes
+  # Args:
+  #   x: observation values for the first axis to plot over
+  #   y: observation values for the second axis to plot over
+  #   labels: factor giving the label of each point
+
+ plotting.data <- data.frame(X = x, Y = y, label = labels)
+  p <- ggplot(plotting.data) + 
+    geom_point(aes(x = X, y = Y, color = label))
+  return(p)
+  
+}
+
+# reduced kmeans 
+kmeans.reduced.2 <- kmeans(full.pca$x[, 1:2], centers = 2)
+kmeans.reduced.3 <- kmeans(full.pca$x[, 1:2], centers = 3)
+kmeans.reduced.4 <- kmeans(full.pca$x[, 1:2], centers = 4)
+
+
+# plot spectral clustering
+p.reduced.2 <- plotLabeledData(full.pca$x[, 1], full.pca$x[, 2], 
+  labels = as.factor(kmeans.reduced.2$cluster))  +
+  ggtitle("Spectral Clustering based on reduced dataset k=2") +
+  xlab("PC1") + 
+  ylab("PC2")+ theme_bw() + theme(panel.border = element_blank(), panel.grid.major = element_blank(),
+panel.grid.minor = element_blank(), axis.line = element_line(colour = "black"))+
+  theme(plot.title = element_text(hjust = 0.5,face="bold",size = 7))
+
+
+p.reduced.3 <- plotLabeledData(full.pca$x[, 1], full.pca$x[, 2], 
+  labels = as.factor(kmeans.reduced.3$cluster))  +
+  ggtitle("Spectral Clustering based on reduced dataset k=3") +
+  xlab("PC1") + 
+  ylab("PC2")+ theme_bw() + theme(panel.border = element_blank(), panel.grid.major = element_blank(),
+panel.grid.minor = element_blank(), axis.line = element_line(colour = "black"))+
+  theme(plot.title = element_text(hjust = 0.5,face="bold",size = 7))
+
+
+p.reduced.4 <- plotLabeledData(full.pca$x[, 1], full.pca$x[, 2], 
+  labels = as.factor(kmeans.reduced.4$cluster))  +
+  ggtitle("Spectral Clustering based on reduced dataset k=4") +
+  xlab("PC1") + 
+  ylab("PC2")+ theme_bw() + theme(panel.border = element_blank(), panel.grid.major = element_blank(),
+panel.grid.minor = element_blank(), axis.line = element_line(colour = "black"))+
+  theme(plot.title = element_text(hjust = 0.5,face="bold",size = 7))
+
+
+grid.arrange(p.reduced.2,p.reduced.3,p.reduced.4,ncol=3)
+@
+
+The spectral clustering results are quite interesting. It not only confirms the previous geographical separation but also adds another layer. When k=3, we found that there's also a north-south distinction on the eastern part, which we failed to capture in the previous plots. 
+
+\section{Stability of findings to perturbation}
+The first perturbation is to perturb the k-means clustering results. Instead of using the starting point 20, we use 10 instead to see whether the culstering results are significantly different from the previous ones. When k=2 and k=3, the clustering results are essentially the same but when k is 4, instead of culstering the small group of points as a line, the perturbed one defines a more inclusive cluster to capture that minor group. 
+
+<<perturb, echo = FALSE, message = FALSE, warning = FALSE, cache = TRUE,fig.align='center',out.width="200px", out.height="200px">>=
+
+# perturbed clusters
+k2.p <- kmeans(sub_ling_dat[,5:71], centers = 2, nstart = 10)
+k3.p <- kmeans(sub_ling_dat[,5:71], centers = 3, nstart = 10)
+k4.p <- kmeans(sub_ling_dat[,5:71], centers = 4, nstart = 10)
+
+# plots to compare
+p2.p <- fviz_cluster(k2.p, geom = "point",  data = sub_ling_dat[,5:71]) + ggtitle("k = 2")+ theme_bw() + theme(panel.border = element_blank(), panel.grid.major = element_blank(),
+panel.grid.minor = element_blank(), axis.line = element_line(colour = "black"))+ ggtitle("Perturbed Data Clustering k=2")+
+  theme(plot.title = element_text(hjust = 0.5,face="bold",size = 7))
+
+p3.p <- fviz_cluster(k3.p, geom = "point",  data = sub_ling_dat[,5:71]) + ggtitle("k = 3")+ theme_bw() + theme(panel.border = element_blank(), panel.grid.major = element_blank(),
+panel.grid.minor = element_blank(), axis.line = element_line(colour = "black"))+ ggtitle("Perturbed Data Clustering k=3")+
+  theme(plot.title = element_text(hjust = 0.5,face="bold",size = 7))
+
+p4.p <- fviz_cluster(k4.p, geom = "point",  data = sub_ling_dat[,5:71]) + ggtitle("k = 4")+ theme_bw() + theme(panel.border = element_blank(), panel.grid.major = element_blank(),
+panel.grid.minor = element_blank(), axis.line = element_line(colour = "black"))+ ggtitle("Perturbed Data Clustering k=4")+
+  theme(plot.title = element_text(hjust = 0.5,face="bold",size = 7))
+
+grid.arrange(p2.p,p3.p,p4.p,ncol=3)
+
+@
+
+The second perturbation is conducted to varify the PCA results. Recall that to convery the PCA results in a more clear and interpretable way, we made a subset of data to see which questions better separate the geographical groups. Now, we perturb the subset to see if we can get the same results. Based on the perturbed result, we still get Q59 and Q82 as the two questions separating the geographical groups, which proves that our analysis is very stable under perturbation.
+
+<<perturb2, echo = FALSE, message = FALSE, warning = FALSE, cache = TRUE,fig.align='center',out.width="200px", out.height="200px">>=
+
+# choose different subset
+set.seed(291835)
+sub_ling_dat.p <- ling_dat[sample(nrow(ling_dat),200),]
+sub.pca.p <- prcomp(sub_ling_dat.p[,5:71],center = TRUE)
+
+states <- sub_ling_dat.p$STATE
+
+
+ # check pertubed biplot 
+f.p<- fviz_pca_biplot(sub.pca.p, repel = TRUE,
+                col.var = "#2E9FDF", # Variables color
+                col.ind = "#696969"  # Individuals color
+                )+ theme_bw() + theme(panel.border = element_blank(), panel.grid.major = element_blank(),
+panel.grid.minor = element_blank(), axis.line = element_line(colour = "black"))+ ggtitle("Perturbed Biplot of Questions and Observations")+
+  theme(plot.title = element_text(hjust = 0.5,face="bold"))
+
+f.p
+
+
+@
+
+
+
+\section{Conclusion}
+Dialectometry does provide insight on the quantification of linguistic variations with respect to geographical areas. By mapping the distribution and intensity of people's responses,  we found that people do have a shared vocabulary across the country but with interesting localized variations. Principal component analysis does help with reducing the dimensionality and narrowing down the couple of vectors that capture the largest and most significant variations in the massive space. The questions that are designed to invoke more colloquial responses actually have an impressive performance of separating geographical groups. Observations are separated into three major clusters with the biggest one on the east coast. K-mean clustering and Spectral clustering also help with verifying that finding and reveal additional north-south geographical distinction. Since the results are fairly consistent under perturbations, we could reasonably conclude that our findings do show significant and well-separated geographical clusters representing people's varied dialectology. 
+
+
+
+
+
+
+
+
+
+
+\end{document}

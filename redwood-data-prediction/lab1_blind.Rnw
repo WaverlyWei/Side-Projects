@@ -1,0 +1,544 @@
+\documentclass[english]{article}
+
+
+
+\usepackage{geometry}
+\geometry{verbose,tmargin=1in,bmargin=1in,lmargin=1in,rmargin=1in}
+\usepackage{fancyhdr}
+\pagestyle{fancy}
+\setlength{\parskip}{\smallskipamount}
+\setlength{\parindent}{0pt}
+\usepackage{amsthm}
+\usepackage{amsmath}
+\usepackage{hyperref}
+\begin{document}
+
+\title{Lab 1 - Redwood Data, Stat 215A, Fall 2018}
+
+
+\author{}
+
+\maketitle
+
+
+
+<<setup, echo = FALSE, message=FALSE, warning=FALSE>>=
+# load in useful packages
+library(tidyverse)
+library(forcats)
+library(lubridate)
+library(stringr)
+library(GGally)
+library(plotly)
+library(superheat)
+library(dygraphs)
+library(lattice)
+library(ggplot2)
+library(webshot)
+library(processx)
+library(knitr)
+library(kableExtra)
+library(gridExtra)
+# load in the loadData() functions
+source("R/load.R")
+# load in the cleanData() functions
+source("R/clean.R")
+@
+
+<<load-data, echo = FALSE, message = FALSE, warning = FALSE, cache = TRUE>>=
+# note that the cache = TRUE chunk argument means that the results of this 
+# chunk are saved so it doesn't need to be re-run every time you compile the pdf
+
+# load the dates data
+dates_orig <- loadDatesData(path = "data/")
+# clean the dates data
+dates <- cleanDatesData(dates_orig)
+
+# load the redwood sensor data
+redwood_all_orig <- loadRedwoodData(path = "data/", source = "all")
+redwood_net_orig <- loadRedwoodData(path = "data/", source = "net")
+redwood_log_orig <- loadRedwoodData(path = "data/", source = "log")
+# clean the redwood sensor data
+redwood_all <- cleanRedwoodData(redwood_all_orig)
+redwood_net <- cleanRedwoodData(redwood_net_orig)
+redwood_log <- cleanRedwoodData(redwood_log_orig)
+
+# load in the mote location data
+mote_location <- loadMoteLocationData(path = "data/")
+@
+
+
+
+\section{Introduction}
+The emergence of new wireless sensor networks sheds light on the microclimatic analysis in the natural world. The sensor networks automate the data collection process, and more importantly, it adds depth and dimensionality to human's understanding of the surrounding world. The study is conducted on a coastal redwood canopy, a seemingly static and constant subject. However, with the assistance of "macroscope," the microclimatic system surrounding the redwood tree reveals the underlying dynamics and complexity. This analysis
+aims to explore the internal relationship of the microclimate system using the massive data obtained from "Macroscope." Since the microclimate system surrounding the redwood tree is complex in nature, each part of exploration would take both temporal and spatial components into consideration thoroughly before reaching to a consluion. 
+
+
+\section{The Data}
+The redwood datasets contain 11 variables: result\_time, epoch(time series), nodeid,parent(network strucutre),\\
+voltage,depth,humidity, humid\_temp(temperature),humid\_adj$($ no specific definition),hamatop(incident PAR),\\
+hamabot(reflected PAR). PAR denotes photosynthetically active solar radiation. redwood\_all\_orig contains 416036 observations, redwood\_log\_orig contains 301056 observations,and redwood\_net\_orig contains 114980 observations.\\
+
+The "dates" dataset contains only temporal data with 5 variables:number, day, date,time, datetime, and 13000 observations.\\
+
+The mote\_location dataset contains spatial information with 5 variables: ID (nodeid),Height, Direc (E ESE NE NW S SW W WNW WSW), Dist, Tree (interior/edge)
+
+
+\subsection{Data Collection}
+The installation is set up on a 70-meter tall coastal redwood tree during a 44-day collection period. Data are captured every 5 minutes and every 2 meters in space. The sensors are placed 15m from the bottom to 70m, west side of the tree, which provides a buffering effect. The sensors are also very close to the tree, with a radial distance of 0.1 to 1m. 
+
+
+\subsection{Data Cleaning}
+The outlier rejection session in the paper is not quite accuarte. When plotting voltage against temperature, within normal temperature range, voltage falls within the range of 2 to 3. When narrowing down to that voltage range, all normal temperature data points lie in voltage 2.2 to 3.0. Therfore, 2.4 to 3 shouldn't be used as the rejection criteria. I used 2.2 to 3.0 instead. \\
+
+
+<<echo = FALSE, message = FALSE, warning = FALSE, cache = TRUE>>=
+
+# Voltage Outlier Rejection
+
+p.1<-redwood_all_orig %>%
+  # sample from original dataset 
+  # get an overview of volt vs. Temperature Distribution
+   slice(sample(nrow(redwood_all_orig),0.005*nrow(redwood_all_orig))) %>%
+  select(voltage,humid_temp) %>% 
+  ggplot(aes(x=voltage,y=humid_temp))+geom_point(color="blue",alpha=0.2)+ggplot2::theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+panel.background = element_blank(), axis.line = element_line(colour = "black")) + ggtitle("Fig 1(a).Outlier Rejection based on Voltage vs.Temperature:Overview")
+
+# Zoom in voltage range 2~3 to obersve outliers 
+p.2<-redwood_all_orig %>%
+   slice(sample(nrow(redwood_all_orig),0.5*nrow(redwood_all_orig))) %>% 
+  filter(voltage<=3 & voltage >=2) %>% 
+  select(voltage,humid_temp) %>% 
+  ggplot(aes(x=voltage,y=humid_temp))+geom_point(color="blue",alpha=0.2)+ggplot2::theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+panel.background = element_blank(), axis.line = element_line(colour = "black"))+ggtitle("Fig 1(b). Outlier Rejection based on Voltage vs.Temperature:Zoom in")
+
+# Display both plots 
+grid.arrange(p.1,p.2)
+@
+
+
+Then I  removed outliers from humidity column since humidity cannot exceed 100\%.Another point to notice is the incident PAR and reflected PAR. In general, reflected PAR is less than incident PAR, however, whether or not using that inequality as a filtering criteria worths more discussion. If reflected PAR is larger than incident PAR, then very likely the bottom sensor receives radiation from outside of the microclimate system. After going back to the paper, I noticed that the paper specifically states that the sensors are placed extremely close to the tree to control for the out-of-system noises. Therefore, I removed all the observations for which reflected PAR is larger than incident PAR. 
+
+
+
+
+
+\subsection{Data Exploration}
+
+\subsubsection{Explore Three Redwood Datasets:net,log,all }
+<<echo = FALSE, message = FALSE, warning = FALSE, cache = TRUE>>=
+
+# Explore how red_wood_all is combined from net and log datasets
+
+# Use epoch and nodeid as a tuple 
+net <- redwood_net_orig %>% select(epoch, nodeid)
+
+# Create tuple key for net data
+net <- lapply(net, function(x) paste0(net$epoch,"-",net$nodeid))
+
+# Find the rows in red_wood_log_orig with the sample tuple 
+log <- redwood_log_orig %>% 
+  select(epoch, nodeid)
+
+# create tuple key for log data
+log <- lapply(log, function(x) paste0(log$epoch,"-",log$nodeid))
+
+# find tuple shared by net and log datasets
+d<-Map(intersect,log,net)
+
+# Find the total number of rows redwood_all_orig supposed to have
+total <- nrow(redwood_log_orig)+nrow(redwood_net_orig)-74182
+
+# TOTAL number of rows of redwood_all_orig should be 341854.
+
+# Show example of duplicates in the given redwood_all_orig dataset
+redwood_all_orig %>% 
+  filter((epoch==4070 & nodeid == 4) | (epoch==2814 & nodeid == 3)) %>%
+  select(result_time,epoch,nodeid,humidity,humid_temp,hamatop,hamabot) %>% 
+  kable(caption = "Example Duplicates")
+
+@
+
+
+The total number of rows after correctly combining net and log datasets  should be 341854 (merging is conducted based on the tuple epoch and nodeid), which means the current red\_wood\_all dataset has redundancy. By inspecting the size of the combined dataset we are given, its row number is exactly the sum of net and log rows. I zoomed in to figure out what's the difference between my merged dataset and the author's way of merging datasets. It turns out that all the duplicates have the same epoch, nodeid, humidity, etc. except the voltage variable. The data point from log dataset has the normal range of voltage while the data point from net dataset has voltage over 200 volts as shown in the example table. I found this issue during the data cleaning process as well, but I didn't generate a new combined dataset. The reason is that the data cleaning procudure automatically removes all the high voltage datapoints. Therefore, data cleaning takes care of both the wrong recording issue and the datasets merging issue.
+
+
+\subsubsection{Initial Display of All Data }
+<<Data exploration1, echo = FALSE, message = FALSE, warning = FALSE, cache = TRUE>>=
+
+# try to display with a boxplot 
+
+# create long form data
+long_dat.1 <- redwood_all %>% 
+# only use 10% of the data because plotly has a max image size restrictions 
+  slice(sample(nrow(redwood_all),0.01*nrow(redwood_all))) %>% 
+  select(humidity,humid_temp) %>% 
+  gather()
+
+# create interactive boxplot 
+box_plot.1 <- plot_ly(x = long_dat.1$key, y = long_dat.1$value, color = factor(long_dat.1$key),type = "box", points = "outliers") %>%
+  layout(title = "Fig 2(a). The Distribution of Temperature and Humidity Data",boxmode = "group", xaxis = list(title="variables"), yaxis =list(title = "values (°C / %)"))
+
+# create link of interactive box plot 
+#link <- api_create(box_plot.1, filename = "boxplots")
+
+# save a static image locally 
+#plotly_IMAGE(box_plot.1, format = "png", out_file = "output.png")
+@
+
+Temperature variable has a median around $15^{\circ}$C, a max around  $31^{\circ}$C and a min around  $7^{\circ}$C. Humidity variable has median around 60\%, max around 99\%  and min around 19 \%. The two variables are normally distributed after data cleaning. 
+
+<<echo = FALSE, message = FALSE, warning = FALSE, cache = TRUE>>=
+
+# include static image 
+include_graphics('static_imgs/output.png')
+@
+
+
+\textbf{NOTE: \\
+This is an interactive plot. Please click the link below. \\
+Zoom in one variable by clicking on the legend}
+
+\par{
+    \url{https://plot.ly/~linqing_wei/1.embed}\\
+    
+}
+
+
+
+<<Data exploration 1-b, echo = FALSE, message = FALSE, warning = FALSE, cache = TRUE>>=
+
+# Box plot of PAR's
+long_dat.2 <- redwood_all %>% 
+  select(hamatop,hamabot) %>% 
+  gather()
+
+box_plot.2 <- plot_ly(x = long_dat.2$key, y = long_dat.2$value, color = factor(long_dat.2$key),type = "box",boxpoints = 'outliers') %>%
+  layout(title = "Fig 2(b). The Distribution of Incident and Reflected PAR Data",boxmode = "group", xaxis = list(title="variables"), yaxis =list(title = "values"))
+
+# create interactive link for boxplot 2
+#link_2 <- api_create(box_plot.2, filename = "boxplot_2")
+
+# save static image locally
+#plotly_IMAGE(box_plot.2, format = "png", out_file = "output_2.png")
+
+@
+
+
+<<echo = FALSE, message = FALSE, warning = FALSE, cache = TRUE>>=
+# load and display static image 
+include_graphics('static_imgs/output_2.png')
+@
+
+\textbf{NOTE: \\
+This is an interactive plot. Please click the link below. \\
+Zoom in one variable by clicking on the legend}
+
+\par{
+    \url{https://plot.ly/~linqing_wei/11.embed}\\
+    
+}
+
+
+The static image is not a good representation since it compresses the reflected PAR data. Please see the interactive plot and zoom in variable for a better visualization. The plot shows that both incident PAR and reflected PAR have massive amount of outliers forming a straight line. However, since the paper does not provide specific instructions defining the outliers of PAR variables, I would rather keep the outliers rather than remove them. By zooming in each PAR variable, the distribution of both PAR variables are very skewed. The refelcted PAR has a heavy proportion of data centered at 0. 
+
+
+
+
+
+\subsubsection{Pairwise Analysis: humidity, temperature and PAR }
+<<Data exploration2, echo = FALSE, message = FALSE, warning = FALSE, cache = TRUE>>=
+
+  redwood_all %>% 
+  # sample data to display 
+  slice(sample(nrow(redwood_all),0.01*nrow(redwood_all))) %>% 
+  select(humidity,humid_temp,hamatop,hamabot) %>% 
+  ggpairs(title = "Fig 2(c). Correlations of Humidity, Temperature and Incident/Reflected PAR", mapping = ggplot2::aes(color='red',alpha=0.2))+ggplot2::theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+panel.background = element_blank(), axis.line = element_line(colour = "black"))
+
+@
+Humidity and temperature have a negative correlation while temperature has a positive correlation with PAR. Both incident and 
+reflected PAR's correlations with humidity and temperature are hard to
+interpret from the plots. It seems that the gradient of humidity and temperature is very patterned, so that we could use this as an anchor point to extend the analysis into temporal and spatial dimensions. 
+
+
+
+
+\subsubsection{Pairwise Analysis: temperature,Height, Direction }
+<<Data exploration3, echo = FALSE, message = FALSE, warning = FALSE, cache = TRUE>>=
+
+# load location data and merge with redwood data
+mote_location <- mote_location %>% rename(nodeid = ID)
+redwood_spatial <- left_join(redwood_all,mote_location)
+# filter NA's
+redwood_spatial <- redwood_spatial %>% filter(!is.na(Tree) & !is.na(Direc))
+#lapply(redwood_spatial[sapply(redwood_spatial, is.character)], as.factor)
+
+# Make pairwise plot 
+redwood_spatial %>% 
+select(humidity, humid_temp,Height, Direc) %>% 
+slice(sample(nrow(redwood_spatial),0.01*nrow(redwood_spatial))) %>% 
+ggpairs(title = "Fig 2(d). Correlations of Temperature, Height and Direction",mapping = ggplot2::aes(colour = Direc,alpha = 0.05),lower=list(combo=wrap("facethist",binwidth=1)))+ggplot2::theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+panel.background = element_blank(), axis.line = element_line(colour = "black"))
+@
+
+Humidity and Temperature do have a spatial variation. For example, humidity is lower in the west direction relative to other directions. In the SW direction, humidity data distribution has a larger variance. Temperature distributions in each direction is more consistent. However, in the west direction, overall temperature is higher relative to other directions. The west direction distribution of humidity and temperature encodes the negative correlation shown in the previous section. The spatial analysis on Direction variable could be a future direction to explore. 
+
+
+
+
+\subsubsection{Pairwise: height, temperature, humidity, Tree interior/edge}
+<<Data exploration4, echo = FALSE, message = FALSE, warning = FALSE, cache = TRUE>>=
+
+# Make pairwise plot 
+redwood_spatial %>% 
+filter(!is.na(Tree)) %>% 
+slice(sample(nrow(redwood_spatial),0.01*nrow(redwood_spatial))) %>%
+select(humidity, humid_temp,Height, Tree) %>% 
+ggpairs(title = "Fig 2(e). Correlations of Temperature, Height and Tree interior/edge",mapping = ggplot2::aes(colour = Tree,alpha = 0.2))+ggplot2::theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+panel.background = element_blank(), axis.line = element_line(colour = "black"))
+@
+
+
+The interior and edge parts of the tree show very different data distributions. Both are approximately normally distributed, but the interior of the tree has overall higher humidity and lower temperature.\\ 
+
+
+Combining the messages conveyed from data exploration, my focus would be to explore the gradient of temprature and humidity in spatial and temporal dimensions. Also, figure out a way to combine both dimensions to visualize the gradient from different angles. PAR would not be a major focus since intuitively there should be more outlier rejection conducted on PAR data points but there's lack of rejection information from the paper. 
+
+
+\section{Graphical Critique}
+I do like the plots in Figure 3 since the representaions migrate from 1D to 2D in a logical order. They try to project the variables on each other to show the internal correlations. However, the same color code in every single plot blurs out the message that could be conveyed. There's nothing stand out by looking at the plots. \\
+
+Another downside is the lack of footnotes for PAR. The axis scale of PAR is apprently different from that in the dataset. There's possibly an intermediate unit conversion or data cleaning step to reproduce the plots shown in the paper. \\
+
+Figure 4 is trying to tell a temporal story for each variable. However, the upper two plots are messy due to the lines. The lower two scatter plots are apprently better to show the time series in a neat way. \\
+
+
+
+
+\section{Findings}
+
+
+\subsection{First finding}
+
+<<F1, echo = FALSE, message = FALSE, warning = FALSE, cache = TRUE>>=
+
+# Group spatial variables "height" and "tree" 
+grouped <-  redwood_spatial %>% 
+  # sample data to plot 
+   slice(sample(nrow(redwood_spatial),0.01*nrow(redwood_spatial))) %>% 
+  group_by(Height,Tree) %>%
+  # get grouped average 
+  summarise(temp=mean(humid_temp),humid = mean(humidity))
+
+# grouped by tree edge
+tree_edge <- grouped %>% 
+  filter(Tree=="edge") %>%
+  select(humid,temp,Height) %>% 
+  data.matrix()
+
+#grouped by tree interior
+tree_interior <- grouped %>% 
+  filter(Tree=="interior") %>%
+  select(humid,temp,Height) %>%
+  data.matrix()
+
+
+# Make 3d surface plot 
+p <- plot_ly() %>% 
+  add_surface(tree_edge,name = 'tree edge',colorscale = list(c(0,1),c("rgb(0,255,0)","rgb(255,0,0)"))) %>%
+  add_surface(tree_interior,name = "tree interior",opacity = 0.98,colorscale = list(c(0,1),c("rgb(14,50,255)","rgb(255,50,14)"))) %>% layout(title = "Fig 3(a). Spatial Humidity Gradient vs. Height and Tree Interior/Edge)")
+          
+
+# save static image
+#plotly_IMAGE(p, format = "png", out_file = "static_imgs/F1.png")
+
+# create interactive link 
+#link_F1 <- api_create(p, filename = "F1")
+
+@
+
+I consider spatial analysis as a "scanning machine." The first thing pops up in my mind is to scan the tree from bottom to top, inside to outside, using humidity as the gradient to see the pattern. Tree height and tree parts(interior and edge) are used as the spatial variables. Overall, Tree edge has a lower humidity magnitude than tree interior. Humidity is higher at higher part of the tree, which verifies the positive correlation between humidity and height shown in the data exploration section. 
+
+
+<<F1_plot, echo = FALSE, message = FALSE, warning = FALSE, cache = TRUE>>=
+include_graphics("static_imgs/F1.png")
+@
+
+\textbf{NOTE: \\
+This is an interactive plot. Please click the link below. \\
+Static graph fails to display the legends.\\
+Get a better visualization with interactive plot!}
+
+
+
+\par{
+    \url{https://plot.ly/~linqing_wei/5.embed}
+}
+
+\subsection{First finding: Part 2}
+
+<<F1-2, echo = FALSE, message = FALSE, warning = FALSE, cache = TRUE>>=
+
+# Group by "Direc" and "Tree" 
+grouped_2 <-  redwood_spatial %>% 
+  # sample data points from original datasets to make plot easier
+   slice(sample(nrow(redwood_spatial),0.01*nrow(redwood_spatial))) %>% 
+  group_by(Direc,Tree) %>%
+  # summarize by mean 
+  summarise(temp=mean(humid_temp),humid = mean(humidity))
+
+scale_temp <- grouped_2 %>% 
+  select(temp,Direc,Tree) 
+
+# re-organize data into a matrix
+# Reshape it as the form superheat pkg requires
+mat <- matrix(NA, nrow=9,ncol=2)
+val = scale_temp$temp[c(2,1,NA,3:12,NA,13:16)]
+
+# There're missing values on each direction
+mat.missing <-matrix(val,nrow=9,ncol=2,byrow = TRUE)
+colnames(mat.missing) <- c("interior","edge")
+rownames(mat.missing) <- unique(scale_temp$Direc) 
+
+superheat(mat.missing,heat.na.col = "white",scale = T,title = "3(b). The Temperature Gradient vs. Direction and Tree Parts", yr.axis.name = "Tree interior/edge")
+
+@
+
+Now we are going to do a $360^{\circ}$C scan of the tree using Direction and Tree parts (interior and edge) as the spatial variables. Intuitively, there should be a temperature gradient in each direction and tree part combination. The heatmap shows scaled temperature intensity, which reveals that the east edge of the tree has the highest temperature. This finding is plausible since normally the east side of the tree gets more solar exposure. 
+
+
+\subsection{Second finding}
+
+<<F2, echo = FALSE, message = FALSE, warning = FALSE, cache = TRUE>>=
+
+# pick the node placed at the bottom of the tree
+node_low <- redwood_spatial %>% filter(nodeid == 80) %>% select(epoch,humid_temp)
+
+# pick the node placed at the top of the tree
+node_high <- redwood_spatial %>% filter(nodeid == 78) %>% select(epoch,humid_temp)
+
+# merge two set of nodes data
+nodes <- left_join(node_high,node_low, by="epoch")
+
+nodes <- nodes %>% filter(!is.na(humid_temp.x) & !is.na(humid_temp.y))
+
+# Plot time series 
+node_plot <- plot_ly(x=nodes$epoch,y=nodes$humid_temp.x,name = 'node_high',type = 'scatter', mode = 'lines') %>%
+  add_trace(y=nodes$humid_temp.y,name = 'node_low') %>% 
+  layout(title = "Fig 4. Time Series Plot for Tree Height vs Temperature(°C)",xaxis = list(title="epoch"),yaxis=list(title="temperature(°C)"))
+
+# save static image 
+#plotly_IMAGE(node_plot, format = "png", out_file = "node.png")
+
+# create interactive link
+#link_node <- api_create(node_plot, filename = "node_plot")
+
+@
+
+The second analysis incorporates both temporal and spatial elements. The motivation of this section is to inspect the temperature change versus time and height of the tree. I chose two nodes, with node 80 placed at the bottom of the tree and node 78 placed at the top of the tree.The node placed at the bottom has an overall higher temperature distribution than the higher node. However, the time series pattern of each node is roughly the same. We could reasonably conclude that the temporal trend is more consistent and stronger than the spatial trend. In other words, the macroclimatic change is more prominent than the microclimatic change. Although it is a rather obvious fact, it reminds us of the difficulty of conducting this experiment since the macro scale trend could overshadow and influence the judgement of microclimatic trend. 
+
+
+
+<<F2_plot, echo = FALSE, message = FALSE, warning = FALSE, cache = TRUE>>=
+include_graphics("static_imgs/node.png")
+@
+
+\textbf{NOTE: \\
+This is an interactive plot. Please click the link below. \\
+Get a better visualization with interactive plot!}
+
+
+\par{
+    \url{https://plot.ly/~linqing_wei/7.embed}
+}
+
+@
+
+
+
+\subsection{Third finding}
+
+<<F3, echo = FALSE, message = FALSE, warning = FALSE, cache = TRUE>>=
+
+# select node placed at radial distance 0.1m
+node_close <- redwood_spatial %>% filter(Dist == 0.1) %>% 
+  #slice(sample(nrow(redwood_spatial),0.01*nrow(redwood_spatial))) %>% 
+  select(epoch,humid_temp,Dist)
+
+# select node placed at radial distance 1m
+node_far <- redwood_spatial %>% filter(Dist == 1) %>%
+  #slice(sample(nrow(redwood_spatial),0.01*nrow(redwood_spatial))) %>% 
+  select(epoch,humid_temp,Dist)
+
+# merge two sets of data
+node_dist <- left_join(node_close,node_far, by="epoch")
+
+# rename variables
+node_dist <- node_dist %>% 
+  filter(!is.na(humid_temp.x) & !is.na(humid_temp.y)) %>% 
+              slice(sample(nrow(node_dist),0.1*nrow(node_dist))) %>% 
+  rename("0.1m"= humid_temp.x,"1m"=humid_temp.y)
+   
+
+# create long form data
+long_dist <- node_dist %>% 
+  select(`0.1m`,`1m`) %>% 
+  gather()
+
+
+# make interactive boxplot 
+p_dist <-  plot_ly(x = long_dist$key, y = long_dist$value,type = "box",color=factor(long_dist$key),boxpoints = "suspectedoutliers") %>% 
+  layout(boxmode = "group",title="Fig 5.The Effect of Radial Distance on the Stability of Data",xaxis=list(title="Radial Distance(m)"),yaxis=list(title="Temperature(°C)"))
+
+#create interactive link 
+#link_dist <- api_create(p_dist, filename = "dist_plots")
+
+#create static image 
+#plotly_IMAGE(p_dist, format = "png", out_file = "dist.png")
+
+@
+
+<<echo = FALSE, message = FALSE, warning = FALSE, cache = TRUE>>==
+include_graphics("static_imgs/dist.png")
+@
+
+\textbf{NOTE: \\
+This is an interactive plot. Please click the link below. \\
+Get a better visualization with interactive plot!}
+
+\par{
+    \url{https://plot.ly/~linqing_wei/9.embed}
+}
+
+
+This section concerns about the stability and the experimental design mentioned in the paper. Since it is hard to control for the noise in the surroundings, the paper mentioned that they placed the sensors at a very closed radial distance to the tree. I was curious to explore the effect of radial distance on the stability of the data. The plot shows that sensors placed at radial distance 0.1m and those placed at 1m have very similar distributions. However, a slight difference is that sensors placed at 1m does have a larger variability at the tail. Although a definite conclusion regarding the effect of radial distance is hard to reach, it does give us an insight that larger radial distance does affect the quality of data. 
+
+
+
+\section{Discussion}
+The data size is a major probelm when exploring the data. During the exploration phase, the first stage is always to make a very raw plot to include all the data points before downsizing. However, the large dataset takes a fairly long running time. In the later stage, I sampled datapoints from the whole dataset and adjusted the transparency, but with the limited capability of human eyes, the plot's resolution still seems very low. Also, since I decided to create interactive plots to better present the data, I got the second restriction from the intervative plot softwares. There's an enforced max plot size such that I had to keep downsizing the sampling size in order to make compatible plots. 
+
+
+
+\section{Conclusion}
+The redwood data collected from "Macroscope" sensors provide enormous amount of information. However, digging into the underlying relationships requires careful data cleaning procedure. Luckily, the datasets do show several prominent microscopic gradients. Zooming into the spatial dimension, from bottom to top of the tree, humidity increases while temperature decreases. The interior part of the tree has higher humidity than the edge. Also, by segmenting the tree into nine directions, we found that the east edge of the tree has the highest temperature.\\  
+
+The temporal trend is more consistent and identifiable than the spatial trend. It is interesting that when plotting temporal versus spatial trends on the same graph, the deviations in spatial trend appear to be negligible, which in turn shows the delicacy of microclimatic system and the importance of designing more sensitive sensoring technologies. \\
+
+Taking care of backgroud noise is a major concern of the this experiment setup. Therefore, inspecting the data stability gives us some intuition regarding the experiment setup. The sensors are placed at a radial distance very close to the tree, but it does slightly affect the data variability.\\
+
+The future analysis could move onto two tracks: experimental design and data analysis. For the experimental deisgn part, I noticed that the authors mentioned the difficulty of zooming into the microclimatic system. The experiment is lack of a rigorous control group to eliminate the background noise, which makes it hard to distinuigsh between local trend and external macrosopic trend. \\
+
+In terms of future data analysis, I would put a heavier emphasis on the temporal analysis. The current analysis does not dig into the dates dataset too much. Several interesting questions we could ask are: 1. How does the temporal pattern change during summer solstice? 2. Would the trend differ if we plot time series versus Direction? 3. Pick a day with the most dynamic climatic change. How fast or sensitive does the redwood microclimatic system adapt to the macroscopic change? \\
+
+This research does provide us a great insight on the microclimatic system of redwood trees, and the rich amount of data obtained from the sensor network is a valuable source of revealing the hidden patterns that we could not directly interpret via human eyes.\\
+
+
+\begin{thebibliography}{1}
+\bibitem{citation} 
+Gilman Tolle et al. 
+\textit{A Macroscope in the Redwoods}. 
+Proceedings of the 3rd International Conference on Embedded Network Sensor Systems, San Diego, CA, 2005.\end{thebibliography}
+
+\end{document}

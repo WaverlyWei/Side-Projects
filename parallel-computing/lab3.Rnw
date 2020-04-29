@@ -1,0 +1,280 @@
+\documentclass{article}
+
+\usepackage{geometry}
+\geometry{verbose,tmargin=1in,bmargin=1in,lmargin=1in,rmargin=1in}
+\usepackage{fancyhdr}
+\pagestyle{fancy}
+\setlength{\parskip}{\smallskipamount}
+\setlength{\parindent}{0pt}
+\usepackage{amsthm}
+\usepackage{amsmath}
+\usepackage{hyperref}
+
+
+\begin{document}
+
+\title{Lab 3 - Parallelizing k-means Stat 215A, Fall 2017}
+
+
+\author{Linqing(Waverly) Wei}
+
+\maketitle
+
+<<setup, echo = FALSE, message=FALSE, warning=FALSE>>=
+library(foreach)
+library(doParallel)
+library(parallel)
+library(cluster)
+library(microbenchmark)
+library(reshape2)
+library(ggplot2)
+library(Rcpp)
+library(xtable)
+library(knitr)
+library(kableExtra)
+@
+
+<<data, echo = FALSE, message=FALSE, warning=FALSE,cache=TRUE>>=
+load("data/lingBinary.RData")
+dat <- lingBinary
+# set rownames as ID for later processing
+rownames(dat) <- lingBinary$ID
+# take off irrelevant information 
+dat <- lingBinary[,-c(1:6)]
+@
+
+
+<<similarity, echo = FALSE, message=FALSE, warning=FALSE,cache=TRUE>>=
+similarity <- function(s1,s2,n){
+  # Goal: Compute similarity measures between two "cluster-index" matrices
+  # step1: compute C1 and C2 matrices
+  # step2: compute similarity measures using cosine similarity 
+  
+  # Args:
+  #   s1: subsample 1, a list of cluster index
+  #   s1: subsample 2, a list of cluster index
+  #   n: number of intersect elements 
+  # Returns:
+  #   correlation: similarity measure, a numeric value 
+  
+  # create empty vector to hold values 
+  vec <- c()
+  # create C1 matrix 
+  C1 <- matrix(NA,nrow = n,ncol = n)
+  for(i in 1:n){
+    for (j in 1:n){
+      if (s1[[i]] == s1[[j]]){
+        # assign element 1 if they belong to the same cluster
+        C <- 1
+        } else {
+        # otherwise, assign 0
+          C<- 0
+        }
+      # collect binary values for the row
+      vec <- c(vec,C)
+    }
+    # assign a vector of values to the row 
+    C1[i,]<- vec
+    # clean up the container for next iteration 
+    vec <- c()
+  }
+  
+# create C2 matrix 
+  # create empty vector to hold values 
+  vec <- c()
+  C2 <- matrix(NA,nrow = n,ncol = n)
+  for(i in 1:n){
+    for (j in 1:n){
+      if (s2[[i]] == s2[[j]]){
+        # assign element 1 if they belong to the same cluster
+        C <- 1
+      } else {
+        # otherwise, assign 0
+          C<- 0 
+      }
+      # collect binary values for the row
+      vec <- c(vec,C)
+    }
+    # assign a vector of values to the row 
+    C2[i,]<- vec
+    # clean up the container for next iteration
+    vec <- c()
+  }
+  
+  # compute the dot product of C1 and C2
+  dot_12 <- sum(C1 %*% C2)
+  # compute the dot product of C1 and C1
+  dot_11 <- sum(C1 %*% C1)
+  # compute the dot product of C2 and C2
+  dot_22 <- sum(C2 %*% C2)
+  # compute cosine correlation
+  correlation<- dot_12/sqrt(dot_11*dot_22)
+  # return similarity measure 
+  return(correlation)
+}
+@
+
+
+<<parallel, eval = FALSE, echo = FALSE, message=FALSE, warning=FALSE,cache=TRUE>>=
+# set the number of cores to use manually
+nCores <- 8  
+# register cores
+registerDoParallel(nCores) 
+# number of iterations
+N <- 100
+#number of k
+kmax <- 10
+# size of subset
+m <- 0.8
+
+# Function of parallely computing similarity measures 
+# outer loop: number of k's
+# inner loop: number of iterations 
+result <- foreach(k = 2:kmax,.combine = cbind) %dopar% {
+  foreach(i = 1:N,.combine=c) %dopar% {
+  # indexing the job
+  cat('Starting ', k, "&",i, 'th job.\n', sep = '')
+  # create subsample 1 from original data 
+  sub1 <- dat[sample(nrow(dat),m*nrow(dat)),]
+  # create subsample 2 from original data 
+  sub2 <- dat[sample(nrow(dat),m*nrow(dat)),]
+  # cluter subsample 1
+  L1 <- kmeans(sub1,k)
+  # cluster subsample 2
+  L2 <- kmeans(sub2,k)
+  # get the index of subsample 1
+  clust.1 <- L1$cluster
+  # get the index of subsample 2
+  clust.2 <-L2$cluster
+  # find the intersect of two subsamples
+  intersect <- intersect(rownames(sub1),rownames(sub2))
+  # find the intersection that belongs to subsample 1
+  L1.intersect <- clust.1[intersect]
+  # find the intetsection that belongs to subsample 2
+  L2.intersect <- clust.2[intersect]
+  # pass two list of indices to similarity measure computation 
+  output <- similarity(L1.intersect,L2.intersect,length(L1.intersect))
+  # index finishing job
+  cat('Finishing ', k,"&",i, 'th job.\n', sep = '')
+  output # this will become part of the out object
+  }
+}
+
+# save results to cluster 
+write.csv(result, "results_foreach.csv")
+
+@
+
+
+<<simulation, echo = FALSE, message=FALSE, warning=FALSE,cache=TRUE>>=
+
+set.seed(2937185)
+sim <- function(){
+  # Goal: create two vectros as input for cpp and R similarity measures
+  # Args: none
+  # Returns:
+  #   A list of two cluster-index vectors:
+  #   L1.intersect
+  #   L2.intersect
+  
+  # 10% subsample from original data 
+  sub1 <- dat[sample(nrow(dat),0.1*nrow(dat)),]
+  # 10% subsample from original data
+  sub2 <- dat[sample(nrow(dat),0.1*nrow(dat)),]
+  # cluster subsample 1 with k = 3
+  L1 <- kmeans(sub1,3)
+  # cluster subsample 2 with k= 3
+  L2 <- kmeans(sub2,3)
+  # find the cluster index of subsample 1
+  clust.1 <- L1$cluster
+  # find the cluster index of subsample 2
+  clust.2 <-L2$cluster
+  # find the intersection of subsamples
+  intersect <- intersect(rownames(sub1),rownames(sub2))
+  # create 
+  L1.intersect <- clust.1[intersect]
+  L2.intersect <- clust.2[intersect]
+  
+  # return a list of two cluster-index vectors 
+  return(list(L1.intersect,L2.intersect))
+}
+
+# grab the returned value from sim()
+out <- sim()
+
+
+@
+
+
+\section*{Compare C++ and R Version of Similarity Matrix}
+<<time1, echo = FALSE, message=FALSE, warning=FALSE,cache=TRUE>>=
+
+# get values from the simulation function 
+L1.intersect <- out[[1]]
+L2.intersect <- out[[2]]
+
+# running time of using R similarity Measure function 
+time_r <- microbenchmark(similarity(L1.intersect,
+                        L2.intersect,length(L1.intersect)),unit = "s")
+
+# get cpp function 
+sourceCpp('similarity.cpp')
+library(Rcpp)
+
+# running time of using cpp similarity function 
+time_cpp <- microbenchmark(similarityCPP(mat(length(L1.intersect),
+                          L1.intersect),mat(length(L2.intersect),
+                          L2.intersect)),unit = "s")
+
+# create tables to compare both running times in unit "second" 
+kable(list(summary(time_r)[,-1],summary(time_cpp)[,-1]),
+      caption = "Running time of Similarity Measures (top:R bottom:Cpp)")
+@
+Based on the running time, apprently cpp version of the similarity matrix is more efficient in time. For cpp implementation, I didn't store the matrix but rather passed the vectors to similarity calculation function directly. In R, I stored the matrix first and then conducted column by column multiplication and addtion. Computing without storing the matrix is the major step that boosts up the speed. Also, since cpp stores vector as a piece of memory without abstraction, it hits the processor directly. Therefore, cpp runs for loops much faster than R. 
+
+
+<<plot, echo = FALSE, message=FALSE, warning=FALSE,cache=TRUE>>=
+
+# get results from parallel computing 
+out <- read.csv("results_foreach.csv")
+
+# re-organize data for plotting 
+# exclude 1st column because it contains index
+d <- melt(out[,2:10])
+
+# make histograms of each k cluster similarity measures 
+ggplot(d,aes(x = value))+
+    facet_wrap(~variable,scales = "free_x") + 
+    geom_histogram() +
+    # remove background 
+    theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+    panel.background = element_blank(), axis.line = element_line(colour = "black"))+ 
+    # add title 
+    ggtitle("Histogram of the Correlation Similarity Measures") +
+    # adjust axis
+    theme(plot.title = element_text(hjust = 0.5)) +xlim(0,1)
+
+
+# cumulative density plot for each k cluster 
+ggplot(d,aes(x=value,color=variable)) +
+  stat_bin(data=subset(d,variable=="k.2"),aes(y=cumsum(..count..)),geom="step")+
+  stat_bin(data=subset(d,variable=="k.3"),aes(y=cumsum(..count..)),geom="step")+
+  stat_bin(data=subset(d,variable=="k.4"),aes(y=cumsum(..count..)),geom="step")+
+  stat_bin(data=subset(d,variable=="k.5"),aes(y=cumsum(..count..)),geom="step")+
+  stat_bin(data=subset(d,variable=="k.6"),aes(y=cumsum(..count..)),geom="step")+
+  stat_bin(data=subset(d,variable=="k.7"),aes(y=cumsum(..count..)),geom="step")+
+  stat_bin(data=subset(d,variable=="k.8"),aes(y=cumsum(..count..)),geom="step")+
+  stat_bin(data=subset(d,variable=="k.9"),aes(y=cumsum(..count..)),geom="step")+
+  stat_bin(data=subset(d,variable=="k.10"),aes(y=cumsum(..count..)),geom="step")+ 
+  # remove background
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+  panel.background = element_blank(), axis.line = element_line(colour = "black"))+ 
+  # add title 
+  ggtitle("Overlay of the Cumulative Distributions of Similarity Measures") +
+  theme(plot.title = element_text(hjust = 0.5))
+
+@
+
+\section*{Optimal Number of Clusters}
+Based on the plots, apprently k = 3 is the most optimal number of clusters. Since after k=3, the correlation starts to spread out rather than center around 1. This method is trustworthy because first the result makes sense based on our knowledge from last lab. Second, the way it accesses stability by evaluting the cosine distance between two cluster-index matrix is soild in a mathematical sense. 
+\end{document}

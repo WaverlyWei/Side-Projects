@@ -1,0 +1,210 @@
+---
+title: "Interactive Maps"
+date: "Oct.4 2018"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+You don't have to slavishly follow this template. Please use this
+structure for your report. Your report should be no more than 12 pages, including figures. Indicate your collaborators on the assignment, if you had
+any.
+
+```{r setup, echo=FALSE, warning=FALSE, message=FALSE}
+# load in useful packages
+library(tidyverse)
+library(forcats)
+library(lubridate)
+library(stringr)
+library(GGally)
+library(plotly)
+library(dygraphs)
+library(lattice)
+library(ggplot2)
+library(processx)
+library(knitr)
+library(kableExtra)
+library(gridExtra)
+library(shiny)
+library(leaflet)
+library(maps)
+library(ggbiplot)
+library(rgl)
+library(lattice)
+library(factoextra)
+library(d3scatter)
+library(htmltools)
+library(crosstalk)
+library(leaflet)
+library(DT)
+library(ggmap)
+library(viridis)
+library(ggthemes)
+library(factoextra)
+library(vegan)
+Sys.setenv('MAPBOX_TOKEN' = 'pk.eyJ1IjoiY3V0ZXBsb3RzIiwiYSI6ImNqbW83eXpnejExcTMzd3IyYmdjcHhuZmwifQ.P20ibHbn79AX8yuQyrvzDw')
+Sys.setenv("plotly_username"="linqing_wei")
+Sys.setenv("plotly_api_key"="GIVKMkqgdnDFjmcwsFyx")
+
+
+```
+
+
+# Interactive Maps 
+```{r load-data, echo=FALSE, warning=FALSE, message=FALSE}
+load("data/question_data.Rdata")
+
+#each person's answer choice to each of 72 questions
+ling_dat <- read.table("data/lingData.txt",header = TRUE)
+
+# V4-V471 contains total of 468 answer choices over 72 questions 
+# count data
+ling_loc <- read.table("data/lingLocation.txt",header = TRUE)
+
+
+## ALso, STATES are not 50!
+code <- c("AL","AK", "AZ", "AR","CA","CO","CT","DE",
+"FL","GA","HI","ID","IL","IN","IA","KS","KY","LA","ME","MD",
+ "MA","MI","MN","MS","MO","MT","NE","NV","NH","NJ","NM","NY",
+ "NC","ND","OH","OK","OR","PA","RI","SC","SD","TN","TX","UT","VT",
+ "VA","WA","WV","WI","WY")
+
+ling_dat$STATE <- as.character(ling_dat$STATE)
+#invalid_code <- c("XX","N.","!L","00","M","94","C)","<NA>")
+ling_dat <- ling_dat %>% filter(STATE %in% code &!is.na(STATE))
+
+## clean missing lat and long
+ling_dat <- ling_dat %>% filter(!is.na(lat) & !is.na(long))
+ling_loc <- ling_loc %>% filter(!is.na(Latitude) & !is.na(Longitude))
+
+
+first_q <- ling_dat %>% 
+  filter(Q104!=0)
+# extract the answers to question 50
+answers_q104 <- all.ans[['104']]
+
+
+answers_q104$Q104 <- rownames(answers_q104)
+first_q$Q104 <- as.character(first_q$Q104)
+first_q <- inner_join(first_q, answers_q104, by = "Q104")
+
+
+## Second Question 
+second_q <- ling_dat %>% 
+  filter(Q095!=0)
+# extract the answers to question 50
+answers_q095 <- all.ans[['95']]
+
+
+answers_q095$Q095 <- rownames(answers_q095)
+second_q$Q095 <- as.character(second_q$Q095)
+second_q <- inner_join(second_q, answers_q095, by = "Q095")
+
+
+```
+
+
+
+```{r interactive, echo=FALSE, warning=FALSE, message=FALSE}
+
+# Use SharedData like a dataframe with Crosstalk-enabled widgets
+first_q$Q104 <- as.numeric(first_q$Q104)
+sd.1 <- SharedData$new(first_q[sample(nrow(first_q), 1000),])
+
+second_q$Q095 <- as.numeric(second_q$Q095)
+sd.2 <- SharedData$new(second_q[sample(nrow(second_q), 1000),])
+
+
+# WORKS!!
+getColor <- function(dat) {
+  sapply(first_q$Q104, function(Q104) {
+    if(Q104 == 1) {
+      "red"
+    } else if(Q104 ==2 ) {
+      "orange"
+    } else if(Q104 ==3) {
+      "yellow"
+    } else if(Q104 ==4) {
+      "green"
+    }else if(Q104 ==5) {
+      "blue"
+    }else {
+      "purple"
+  } } )
+}
+
+getColor.2<- function(dat) {
+  sapply(first_q$Q095, function(Q095) {
+    if(Q095 == 1) {
+      "red"
+    } else if(Q095 ==2 ) {
+      "orange"
+    } else if(Q095 ==3) {
+      "yellow"
+    } else if(Q095 ==4) {
+      "green"
+    }else if(Q095 ==5) {
+      "blue"
+    }else {
+      "purple"
+  } } )
+}
+
+icons <- awesomeIcons(
+  icon = 'ios-close',
+  iconColor = 'black',
+  library = 'ion',
+  markerColor = getColor(first_q)
+)
+
+icons.2<- awesomeIcons(
+  icon = 'ios-close',
+  iconColor = 'black',
+  library = 'ion',
+  markerColor = getColor.2(second_q)
+)
+
+
+
+
+pp <- bscols(filter_slider("answer", "Choice", sd.1, column=~Q104, step=0.1, width=250),
+  leaflet(sd.1) %>% addLegend("topright", 
+  colors =c("red",  "orange", "yellow", "green", "blue","purple"),
+  labels= c("The Subway", "The L,or the EL","The T","The Metro","BART", "ohter"),
+  title= "What do you call a public railway system",
+  opacity = 0.5) %>% addTiles() %>% 
+    addAwesomeMarkers(~long, ~lat, icon=icons, label=~as.character(Q104)),
+    #addcircleMarkers(),
+  datatable(sd.1, extensions="Scroller", style="bootstrap", class="compact", width="100%",
+            #options=list(deferRender=TRUE, scrollY=300, scroller=TRUE))
+))
+
+
+
+pp.2 <- bscols(filter_slider("answer", "Choice", sd.2, column=~Q095, step=0.1, width=250),
+  leaflet(sd.2) %>% addLegend("topright", 
+  colors =c("red",  "orange", "yellow", "green", "blue","purple"),
+  labels= c("New York City", "Boston","DC","LA","Chicago", "ohter"),
+  title= "What is THE city",
+  opacity = 0.5) %>% addTiles() %>% 
+    addAwesomeMarkers(~long, ~lat, icon=icons, label=~as.character(Q104)),
+    #addcircleMarkers(),
+  datatable(sd.1, extensions="Scroller", style="bootstrap", class="compact", width="100%",
+            #options=list(deferRender=TRUE, scrollY=300, scroller=TRUE))
+))
+
+
+
+
+```
+
+
+```{r plot1, echo=FALSE, warning=FALSE, message=FALSE}
+pp
+
+```
+\pagebreak
+```{r plot2, echo=FALSE, warning=FALSE, message=FALSE}
+pp.2
+
+```
